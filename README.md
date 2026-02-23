@@ -1,361 +1,326 @@
-# 💰 Credit Card Score Prediction - Financial ML
+# 📊 Credit Card Score Prediction - Financial ML
 
-A **machine learning model for credit card scoring** using advanced feature engineering and ensemble methods to predict creditworthiness, enabling financial institutions to make informed lending decisions with high accuracy.
+A **machine learning system for predicting credit card scores** using historical financial data, classification models, and feature engineering.
 
 ## 🎯 Overview
 
-This project demonstrates:
-- ✅ Feature engineering for financial data
-- ✅ Handling imbalanced datasets
-- ✅ Multiple ML algorithms
-- ✅ Model evaluation metrics
-- ✅ Credit risk assessment
-- ✅ Threshold optimization
+This project covers:
+- ✅ Financial data analysis
+- ✅ Feature engineering
+- ✅ Classification models
+- ✅ Model evaluation
+- ✅ Risk assessment
+- ✅ Interpretability
+- ✅ Business insights
 
-## 📊 Dataset Overview
-
-```
-Features: 31
-Target: Credit Score (0-200)
-Samples: 100,000+ customers
-Balance: ~60% good credit, ~40% poor credit
-```
-
-## 🔧 Features
-
-### Demographic Features
-```
-- Age (18-82)
-- Gender
-- Marital Status
-- Education Level
-- Employment Status
-```
-
-### Financial Features
-```
-- Annual Income
-- Monthly Salary
-- Existing Loans
-- Credit History Length
-- Payment History
-```
-
-### Behavioral Features
-```
-- Number of Accounts
-- Credit Utilization Rate
-- Payment Delays
-- Recent Inquiries
-- Delinquency Status
-```
-
-## 🛠️ Feature Engineering
+## 💳 Data Preprocessing
 
 ```python
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 
-class CreditFeatureEngineer:
-    def __init__(self, data):
-        self.data = data
+class CreditDataProcessor:
+    """Process credit card data"""
     
-    def create_derived_features(self):
-        """Create new features from existing ones"""
+    def __init__(self):
+        self.data = None
+        self.scaler = StandardScaler()
+    
+    def load_data(self, filepath):
+        """Load credit dataset"""
+        self.data = pd.read_csv(filepath)
+        print(f"Dataset shape: {self.data.shape}")
+        return self.data
+    
+    def handle_missing_values(self):
+        """Handle missing data"""
+        df = self.data.copy()
         
-        # Income-to-debt ratio
-        self.data['income_debt_ratio'] = (
-            self.data['annual_income'] / 
-            (self.data['existing_loans'] + 1)
-        )
+        # Missing value percentage
+        missing_pct = (df.isnull().sum() / len(df)) * 100
+        print(f"Missing values:\n{missing_pct[missing_pct > 0]}")
         
-        # Credit utilization (new vs existing credit)
-        self.data['credit_ratio'] = (
-            self.data['used_credit'] / 
-            (self.data['total_credit_limit'] + 1)
-        )
+        # Drop columns with >50% missing
+        df = df.dropna(thresh=0.5 * len(df), axis=1)
+        
+        # Impute numerical columns
+        numerical_cols = df.select_dtypes(include=[np.number]).columns
+        for col in numerical_cols:
+            df[col].fillna(df[col].median(), inplace=True)
+        
+        return df
+    
+    def feature_engineering(self):
+        """Create financial features"""
+        df = self.data.copy()
+        
+        # Income-based features
+        if 'annual_income' in df.columns:
+            df['income_category'] = pd.qcut(df['annual_income'], 
+                                            q=4, 
+                                            labels=['low', 'medium', 'high', 'very_high'])
+        
+        # Payment behavior
+        if 'num_late_payments' in df.columns:
+            df['late_payment_ratio'] = df['num_late_payments'] / df['account_age_months']
+        
+        # Utilization ratio
+        if 'credit_limit' in df.columns and 'balance' in df.columns:
+            df['utilization_ratio'] = df['balance'] / df['credit_limit']
+        
+        # Debt-to-income
+        if 'total_debt' in df.columns and 'annual_income' in df.columns:
+            df['debt_to_income'] = df['total_debt'] / df['annual_income']
+        
+        # Account age categories
+        if 'account_age_months' in df.columns:
+            df['account_age_category'] = pd.cut(df['account_age_months'],
+                                               bins=[0, 12, 36, 60, 120, np.inf],
+                                               labels=['new', 'young', 'established', 'mature', 'old'])
         
         # Payment history score
-        self.data['on_time_payment_rate'] = (
-            self.data['on_time_payments'] / 
-            (self.data['total_payments'] + 1)
-        )
+        if 'on_time_payments' in df.columns and 'total_payments' in df.columns:
+            df['payment_reliability'] = df['on_time_payments'] / (df['total_payments'] + 1)
         
-        # Account diversity
-        self.data['account_diversity'] = (
-            self.data['credit_cards'] + 
-            self.data['loans'] + 
-            self.data['mortgages']
-        )
-        
-        # Credit age (months)
-        self.data['credit_age'] = (
-            (pd.Timestamp.now() - self.data['credit_start_date']).dt.days / 30
-        )
-        
-        return self.data
+        return df
     
-    def handle_categorical(self):
-        """Encode categorical variables"""
-        categorical_cols =  ['gender', 'marital_status', 'education']
+    def encode_categorical(self):
+        """Encode categorical features"""
+        df = self.data.copy()
         
-        # Ordinal encoding for ordered categories
-        education_mapping = {
-            'High School': 1,
-            'Bachelor': 2,
-            'Master': 3,
-            'PhD': 4
-        }
-        self.data['education_encoded'] = self.data['education'].map(education_mapping)
+        categorical_cols = df.select_dtypes(include=['object']).columns
         
-        # One-hot encoding for nominal categories
-        self.data = pd.get_dummies(self.data, columns=['gender', 'marital_status'])
+        for col in categorical_cols:
+            le = LabelEncoder()
+            df[col] = le.fit_transform(df[col].astype(str))
         
-        return self.data
+        return df
+    
+    def normalize_features(self, X_train):
+        """Scale numerical features"""
+        X_scaled = self.scaler.fit_transform(X_train)
+        
+        return X_scaled
 ```
 
-## 🤖 Model Development
-
-### Ensemble Approach
+## 🤖 Classification Models
 
 ```python
-from sklearn.ensemble import (
-    RandomForestClassifier,
-    GradientBoostingClassifier,
-    AdaBoostClassifier
-)
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
-from xgboost import XGBClassifier
-import lightgbm as lgb
+from sklearn.model_selection import cross_val_score, GridSearchCV
 
-class CreditScoreEnsemble:
+class CreditScoreClassifier:
+    """Predict credit score category"""
+    
     def __init__(self):
-        self.models = {
-            'logistic': LogisticRegression(max_iter=1000),
-            'random_forest': RandomForestClassifier(n_estimators=100),
-            'gradient_boost': GradientBoostingClassifier(n_estimators=100),
-            'xgboost': XGBClassifier(n_estimators=100),
-            'lightgbm': lgb.LGBMClassifier(n_estimators=100),
-            'adaboost': AdaBoostClassifier(n_estimators=100)
+        self.models = {}
+        self.best_model = None
+    
+    def logistic_regression(self, X_train, y_train):
+        """Baseline model"""
+        lr = LogisticRegression(
+            max_iter=1000,
+            random_state=42,
+            class_weight='balanced'
+        )
+        
+        lr.fit(X_train, y_train)
+        self.models['lr'] = lr
+        
+        return lr
+    
+    def random_forest(self, X_train, y_train):
+        """Random Forest"""
+        rf = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=12,
+            min_samples_split=5,
+            min_samples_leaf=2,
+            random_state=42,
+            class_weight='balanced',
+            n_jobs=-1
+        )
+        
+        rf.fit(X_train, y_train)
+        self.models['rf'] = rf
+        
+        return rf
+    
+    def gradient_boosting(self, X_train, y_train):
+        """Gradient Boosting"""
+        gb = GradientBoostingClassifier(
+            n_estimators=100,
+            learning_rate=0.1,
+            max_depth=7,
+            min_samples_split=5,
+            subsample=0.8,
+            random_state=42
+        )
+        
+        gb.fit(X_train, y_train)
+        self.models['gb'] = gb
+        
+        return gb
+    
+    def hyperparameter_tuning(self, X_train, y_train):
+        """Grid search for best params"""
+        param_grid = {
+            'n_estimators': [50, 100, 200],
+            'max_depth': [5, 10, 15],
+            'learning_rate': [0.01, 0.1, 0.2]
         }
-        self.ensemble_weights = None
-    
-    def train(self, X_train, y_train):
-        """Train all models"""
-        for name, model in self.models.items():
-            print(f"Training {name}...")
-            model.fit(X_train, y_train)
-    
-    def predict_ensemble(self, X_test):
-        """Weighted ensemble prediction"""
-        predictions = np.zeros(len(X_test))
         
-        for name, model in self.models.items():
-            weight = self.ensemble_weights[name]
-            pred = model.predict_proba(X_test)[:, 1]
-            predictions += weight * pred
+        gb = GradientBoostingClassifier(random_state=42)
         
-        return (predictions > 0.5).astype(int)
-    
-    def optimize_weights(self, X_val, y_val):
-        """Find optimal ensemble weights"""
-        from scipy.optimize import minimize
+        grid_search = GridSearchCV(
+            gb,
+            param_grid,
+            cv=5,
+            scoring='roc_auc_ovr',
+            n_jobs=-1
+        )
         
-        def objective(weights):
-            predictions = np.zeros(len(X_val))
-            norm_weights = weights / weights.sum()
-            
-            for (name, model), weight in zip(self.models.items(), norm_weights):
-                pred = model.predict_proba(X_val)[:, 1]
-                predictions += weight * pred
-            
-            pred_binary = (predictions > 0.5).astype(int)
-            return -accuracy_score(y_val, pred_binary)
+        grid_search.fit(X_train, y_train)
         
-        initial_weights = np.ones(len(self.models)) / len(self.models)
-        result = minimize(objective, initial_weights)
+        print(f"Best params: {grid_search.best_params_}")
+        print(f"Best CV score: {grid_search.best_score_:.3f}")
         
-        self.ensemble_weights = result.x / result.x.sum()
+        self.best_model = grid_search.best_estimator_
+        
+        return self.best_model
 ```
 
 ## 📈 Model Evaluation
 
-### Performance Metrics
-
 ```python
 from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_auc_score,
-    confusion_matrix,
-    roc_curve
+    classification_report, confusion_matrix, roc_auc_score,
+    roc_curve, auc, precision_recall_curve
 )
 
-class ModelEvaluator:
+class CreditModelEvaluator:
+    """Evaluate model performance"""
+    
     @staticmethod
-    def evaluate(y_true, y_pred):
-        """Comprehensive model evaluation"""
+    def evaluate(model, X_test, y_test):
+        """Comprehensive evaluation"""
+        y_pred = model.predict(X_test)
+        y_pred_proba = model.predict_proba(X_test)
         
         metrics = {
-            'accuracy': accuracy_score(y_true, y_pred),
-            'precision': precision_score(y_true, y_pred),
-            'recall': recall_score(y_true, y_pred),
-            'f1': f1_score(y_true, y_pred),
+            'roc_auc': roc_auc_score(y_test, y_pred_proba, multi_class='ovr'),
+            'classification_report': classification_report(y_test, y_pred)
         }
         
-        cm = confusion_matrix(y_true, y_pred)
-        
-        # Confusion matrix breakdown
-        tn, fp, fn, tp = cm.ravel()
-        
-        metrics['true_negative_rate'] = tn / (tn + fp)
-        metrics['false_positive_rate'] = fp / (fp + tn)
-        metrics['false_negative_rate'] = fn / (fn + tp)
+        print(metrics['classification_report'])
         
         return metrics
     
     @staticmethod
-    def evaluate_probabilities(y_true, y_proba):
-        """Evaluate probabilistic predictions"""
+    def feature_importance(model, feature_names):
+        """Feature importance analysis"""
+        if hasattr(model, 'feature_importances_'):
+            importances = model.feature_importances_
+            indices = np.argsort(importances)[::-1]
+            
+            print("Feature Rankings:")
+            for i in range(min(10, len(feature_names))):
+                print(f"{i+1}. {feature_names[indices[i]]}: {importances[indices[i]]:.4f}")
+            
+            return importances
+    
+    @staticmethod
+    def plot_roc_curve(model, X_test, y_test):
+        """ROC curve visualization"""
+        y_pred_proba = model.predict_proba(X_test)
+        fpr, tpr, _ = roc_curve(y_test, y_pred_proba[:, 1])
+        roc_auc = auc(fpr, tpr)
         
-        auc = roc_auc_score(y_true, y_proba)
-        fpr, tpr, thresholds = roc_curve(y_true, y_proba)
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(8, 6))
+        plt.plot(fpr, tpr, label=f'ROC curve (AUC = {roc_auc:.2f})')
+        plt.plot([0, 1], [0, 1], 'k--', label='Random')
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('ROC Curve')
+        plt.legend()
+        plt.show()
+```
+
+## 🎯 Risk Scoring
+
+```python
+class CreditRiskScorer:
+    """Calculate risk scores"""
+    
+    @staticmethod
+    def calculate_risk_score(model, features):
+        """Predict risk probability"""
+        risk_prob = model.predict_proba([features])[0]
+        
+        # Assuming 0=Good, 1=Poor
+        risk_score = risk_prob[1] * 100
+        
+        # Risk category
+        if risk_score < 20:
+            risk_category = 'Low Risk'
+        elif risk_score < 50:
+            risk_category = 'Medium Risk'
+        else:
+            risk_category = 'High Risk'
         
         return {
-            'auc': auc,
-            'fpr': fpr,
-            'tpr': tpr,
-            'thresholds': thresholds
+            'risk_score': risk_score,
+            'risk_category': risk_category,
+            'good_probability': risk_prob[0]
         }
-```
-
-### Threshold Optimization
-
-```python
-class ThresholdOptimizer:
-    """Optimize decision threshold for specific business needs"""
     
     @staticmethod
-    def find_optimal_threshold(y_true, y_proba, metric='f1'):
-        """Find threshold that maximizes metric"""
-        
-        best_score = 0
-        best_threshold = 0.5
-        
-        for threshold in np.arange(0, 1, 0.01):
-            y_pred = (y_proba >= threshold).astype(int)
-            
-            if metric == 'f1':
-                score = f1_score(y_true, y_pred)
-            elif metric == 'precision':
-                score = precision_score(y_true, y_pred)
-            elif metric == 'recall':
-                score = recall_score(y_true, y_pred)
-            
-            if score > best_score:
-                best_score = score
-                best_threshold = threshold
-        
-        return best_threshold, best_score
-    
-    @staticmethod
-    def find_business_optimal_threshold(y_true, y_proba, 
-                                       cost_fp=1,  # Cost of false positive
-                                       cost_fn=5):  # Cost of false negative
-        """Optimize threshold for business costs"""
-        
-        best_cost = float('inf')
-        best_threshold = 0.5
-        
-        for threshold in np.arange(0, 1, 0.01):
-            y_pred = (y_proba >= threshold).astype(int)
-            cm = confusion_matrix(y_true, y_pred)
-            tn, fp, fn, tp = cm.ravel()
-            
-            total_cost = (fp * cost_fp) + (fn * cost_fn)
-            
-            if total_cost < best_cost:
-                best_cost = total_cost
-                best_threshold = threshold
-        
-        return best_threshold, best_cost
-```
-
-## ⚖️ Handling Imbalanced Data
-
-```python
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
-from imblearn.pipeline import Pipeline
-
-class BalancingStrategy:
-    @staticmethod
-    def smote_strategy(X_train, y_train):
-        """SMOTE - Synthetic Minority Over-sampling"""
-        smote = SMOTE(sampling_strategy=0.5)
-        X_balanced, y_balanced = smote.fit_resample(X_train, y_train)
-        return X_balanced, y_balanced
-    
-    @staticmethod
-    def combined_strategy(X_train, y_train):
-        """Combine over and under sampling"""
-        pipeline = Pipeline([
-            ('over', SMOTE(sampling_strategy=0.5)),
-            ('under', RandomUnderSampler(sampling_strategy=0.8))
-        ])
-        X_balanced, y_balanced = pipeline.fit_resample(X_train, y_train)
-        return X_balanced, y_balanced
-    
-    @staticmethod
-    def class_weights(y_train):
-        """Use class weights in model"""
-        from sklearn.utils.class_weight import compute_class_weight
-        
-        weights = compute_class_weight(
-            'balanced',
-            np.unique(y_train),
-            y_train
-        )
-        return dict(enumerate(weights))
+    def generate_recommendation(risk_score):
+        """Business recommendation"""
+        if risk_score < 20:
+            return "Approve with standard terms"
+        elif risk_score < 50:
+            return "Approve with monitoring"
+        else:
+            return "Request additional documentation or deny"
 ```
 
 ## 💡 Interview Talking Points
 
-**Q: How do you handle imbalanced credit data?**
+**Q: Class imbalance in credit scoring?**
 ```
 Answer:
-1. SMOTE - synthetic minority samples
-2. Class weights - penalize minority mistakes
-3. Stratified sampling - preserve class ratio
-4. Different thresholds - business-specific optimization
+- Good credit cards common, bad rare
+- Use balanced class weights
+- SMOTE oversampling
+- ROC-AUC vs accuracy metric
+- Cost matrix implementation
 ```
 
-**Q: What metrics matter most for credit scoring?**
+**Q: Feature importance in financial?**
 ```
 Answer:
-- Recall (catch all defaulters)
-- Precision (avoid unnecessary rejections)
-- F1 (balanced trade-off)
-- Business cost analysis
+- Payment history critical
+- Utilization ratio matters
+- Income stability useful
+- Account age proxy for reliability
+- SHAP/LIME for transparency
 ```
 
 ## 🌟 Portfolio Value
 
-✅ Financial ML expertise
-✅ Imbalanced data handling
-✅ Ensemble methods
-✅ Model evaluation metrics
-✅ Threshold optimization
-✅ Business-oriented ML
-
-## 📄 License
-
-MIT License - Educational Use
+✅ Financial data analysis
+✅ Feature engineering
+✅ Classification models
+✅ Hyperparameter tuning
+✅ ROC-AUC evaluation
+✅ Risk scoring
+✅ Business recommendations
 
 ---
 
-**Technologies**: Scikit-learn, XGBoost, LightGBM, Imbalanced-learn
+**Technologies**: Scikit-learn, Pandas, XGBoost
 
